@@ -31,6 +31,9 @@ public class JsonAdaptedPersonTest {
     private static final String INVALID_EMAIL = "example.com";
     private static final String INVALID_TAG = "#friend";
 
+    private static final String MESSAGE_INVALID_ATTENDANCE = "Attendance record has an invalid date or status.";
+    private static final String MESSAGE_INVALID_GRADE = "Grade assessment name or score is invalid.";
+
     private static final String VALID_NAME = BENSON.getName().toString();
     private static final String VALID_CLASS_NAME = BENSON.getClassName().toString();
     private static final String VALID_EMAIL = BENSON.getEmail().get().toString();
@@ -190,115 +193,202 @@ public class JsonAdaptedPersonTest {
     }
 
     @Test
-    public void toModelType_personWithAttendance_returnsPersonWithAttendance() throws Exception {
-        Attendance record = new Attendance(
-            LocalDate.of(2026, 9, 16),
-            Attendance.Status.PRESENT);
-        Person personWithAttendance = BENSON.withAttendance(record);
+    public void toModelType_personWithRecords_roundTripKeepsRecords() throws Exception {
+        Attendance record = new Attendance(LocalDate.of(2026, 9, 16), Attendance.Status.PRESENT);
+        Grade grade = new Grade("Assignment 1", new BigDecimal("97.5"));
 
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(personWithAttendance);
+        // EP: a contact with attendance records only
+        Person withAttendance = BENSON.withAttendance(record);
+        assertEquals(withAttendance, new JsonAdaptedPerson(withAttendance).toModelType());
 
-        assertEquals(personWithAttendance, adaptedPerson.toModelType());
-        assertEquals(List.of(record), adaptedPerson.toModelType().getAttendanceRecords());
+        // EP: a contact with grades only
+        Person withGrade = BENSON.withGrade(grade);
+        assertEquals(withGrade, new JsonAdaptedPerson(withGrade).toModelType());
+
+        // EP: a contact with both, where the records are kept in the order they were recorded
+        Attendance laterRecord = new Attendance(LocalDate.of(2026, 9, 10), Attendance.Status.LATE);
+        Grade otherGrade = new Grade("Exam", new BigDecimal("60"));
+        Person withBoth = BENSON.withAttendance(record).withAttendance(laterRecord).withGrade(grade)
+                .withGrade(otherGrade);
+        Person restored = new JsonAdaptedPerson(withBoth).toModelType();
+        assertEquals(withBoth, restored);
+        assertEquals(List.of(record, laterRecord), restored.getAttendanceRecords());
+        assertEquals(List.of(grade, otherGrade), restored.getGradeRecords());
     }
 
     @Test
-    public void toModelType_missingAttendanceRecords_returnsPersonWithEmptyAttendance() throws Exception {
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(
-            VALID_NAME,
-            VALID_CLASS_NAME,
-            VALID_EMAIL,
-            VALID_TAGS,
-            null,
-            null);
+    public void toModelType_noRecords_returnsPersonWithEmptyRecords() throws Exception {
+        // EP: the lists are missing from the file
+        JsonAdaptedPerson missingLists = new JsonAdaptedPerson(
+                VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, null, null);
+        assertTrue(missingLists.toModelType().getAttendanceRecords().isEmpty());
+        assertTrue(missingLists.toModelType().getGradeRecords().isEmpty());
 
-        assertTrue(adaptedPerson.toModelType().getAttendanceRecords().isEmpty());
+        // EP: the lists are empty
+        JsonAdaptedPerson emptyLists = new JsonAdaptedPerson(
+                VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, List.of(), List.of());
+        assertTrue(emptyLists.toModelType().getAttendanceRecords().isEmpty());
+        assertTrue(emptyLists.toModelType().getGradeRecords().isEmpty());
     }
 
     @Test
     public void toModelType_duplicateAttendanceDates_throwsIllegalValueException() {
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL,
-                VALID_TAGS,
-                List.of(new JsonAdaptedAttendance("2026-09-16", "present"),
-                        new JsonAdaptedAttendance("2026-09-16", "absent")),
-                List.of());
+        // EP: two records on the same date with different statuses
+        assertDuplicateAttendanceDate(List.of(new JsonAdaptedAttendance("2026-09-16", "present"),
+                new JsonAdaptedAttendance("2026-09-16", "absent")));
 
-        assertThrows(IllegalValueException.class, Person.MESSAGE_DUPLICATE_ATTENDANCE_DATE,
-                adaptedPerson::toModelType);
+        // EP: two records on the same date with the same status
+        assertDuplicateAttendanceDate(List.of(new JsonAdaptedAttendance("2026-09-16", "present"),
+                new JsonAdaptedAttendance("2026-09-16", "present")));
+
+        // EP: the repeated date is not next to the first record with that date
+        assertDuplicateAttendanceDate(List.of(new JsonAdaptedAttendance("2026-09-16", "present"),
+                new JsonAdaptedAttendance("2026-09-17", "late"),
+                new JsonAdaptedAttendance("2026-09-16", "absent")));
     }
 
     @Test
     public void toModelType_duplicateAssessments_throwsIllegalValueException() {
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL,
-                VALID_TAGS, List.of(),
-                List.of(new JsonAdaptedGrade("Quiz 1", BigDecimal.valueOf(80)),
-                        new JsonAdaptedGrade("quiz 1", BigDecimal.valueOf(20))));
+        // EP: two grades for the same assessment with different scores
+        assertDuplicateAssessment(List.of(new JsonAdaptedGrade("Quiz 1", BigDecimal.valueOf(80)),
+                new JsonAdaptedGrade("Quiz 1", BigDecimal.valueOf(20))));
 
-        assertThrows(IllegalValueException.class, Person.MESSAGE_DUPLICATE_ASSESSMENT,
-                adaptedPerson::toModelType);
+        // EP: two grades for the same assessment in another case
+        assertDuplicateAssessment(List.of(new JsonAdaptedGrade("Quiz 1", BigDecimal.valueOf(80)),
+                new JsonAdaptedGrade("quiz 1", BigDecimal.valueOf(20))));
+
+        // EP: two grades for the same assessment with extra spaces
+        assertDuplicateAssessment(List.of(new JsonAdaptedGrade("Quiz 1", BigDecimal.valueOf(80)),
+                new JsonAdaptedGrade("  Quiz    1 ", BigDecimal.valueOf(20))));
+
+        // EP: the repeated assessment is not next to the first grade for it
+        assertDuplicateAssessment(List.of(new JsonAdaptedGrade("Quiz 1", BigDecimal.valueOf(80)),
+                new JsonAdaptedGrade("Exam", BigDecimal.valueOf(50)),
+                new JsonAdaptedGrade("QUIZ 1", BigDecimal.valueOf(20))));
     }
 
     @Test
-    public void toModelType_nullTag_throwsIllegalValueException() {
-        List<JsonAdaptedTag> tagsWithNull = new ArrayList<>(VALID_TAGS);
-        tagsWithNull.add(null);
-        JsonAdaptedPerson person = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, tagsWithNull,
-            List.of(), List.of());
-        String expectedMessage = String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "tags");
-        assertThrows(IllegalValueException.class, expectedMessage, person::toModelType);
+    public void toModelType_nullRecord_throwsIllegalValueException() {
+        // EP: a null entry in the attendance records
+        List<JsonAdaptedAttendance> attendanceWithNull = new ArrayList<>();
+        attendanceWithNull.add(null);
+        JsonAdaptedPerson withNullAttendance = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL,
+                VALID_TAGS, attendanceWithNull, List.of());
+        assertThrows(IllegalValueException.class,
+                String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "attendanceRecords"),
+                withNullAttendance::toModelType);
+
+        // EP: a null entry in the grade records
+        List<JsonAdaptedGrade> gradesWithNull = new ArrayList<>();
+        gradesWithNull.add(null);
+        JsonAdaptedPerson withNullGrade = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL,
+                VALID_TAGS, List.of(), gradesWithNull);
+        assertThrows(IllegalValueException.class,
+                String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "gradeRecords"),
+                withNullGrade::toModelType);
+
+        // EP: a null entry after a valid record
+        List<JsonAdaptedAttendance> validThenNull = new ArrayList<>();
+        validThenNull.add(new JsonAdaptedAttendance("2026-09-16", "present"));
+        validThenNull.add(null);
+        assertThrows(IllegalValueException.class,
+                String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "attendanceRecords"),
+                new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, validThenNull,
+                        List.of())::toModelType);
     }
 
     @Test
-    public void toModelType_nullAttendanceRecord_throwsIllegalValueException() {
-        List<JsonAdaptedAttendance> recordsWithNull = new ArrayList<>();
-        recordsWithNull.add(null);
+    public void toModelType_invalidRecord_throwsIllegalValueException() {
+        // EP: an attendance record with a date that does not exist
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_ATTENDANCE, personWithAttendance(
+                new JsonAdaptedAttendance("2026-02-31", "present"))::toModelType);
+
+        // EP: an attendance record with a status that does not exist
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_ATTENDANCE, personWithAttendance(
+                new JsonAdaptedAttendance("2026-09-16", "sick"))::toModelType);
+
+        // EP: an attendance record without a date or without a status
+        assertThrows(IllegalValueException.class, "Attendance date is missing.", personWithAttendance(
+                new JsonAdaptedAttendance(null, "present"))::toModelType);
+        assertThrows(IllegalValueException.class, "Attendance status is missing.", personWithAttendance(
+                new JsonAdaptedAttendance("2026-09-16", null))::toModelType);
+
+        // EP: a grade with an assessment name that is not valid
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_GRADE, personWithGrade(
+                new JsonAdaptedGrade("Exam,1", BigDecimal.TEN))::toModelType);
+
+        // EP: a grade with a score that is not valid
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_GRADE, personWithGrade(
+                new JsonAdaptedGrade("Exam", new BigDecimal("101")))::toModelType);
+
+        // EP: a grade without an assessment name or without a score
+        assertThrows(IllegalValueException.class, "Grade assessment name is missing.", personWithGrade(
+                new JsonAdaptedGrade(null, BigDecimal.TEN))::toModelType);
+        assertThrows(IllegalValueException.class, "Grade score is missing.", personWithGrade(
+                new JsonAdaptedGrade("Exam", null))::toModelType);
+    }
+
+    @Test
+    public void toModelType_validRecordTogetherWithInvalidRecord_throwsIllegalValueException() {
+        // EP: a valid attendance record followed by an invalid one -> the invalid one is reported
+        List<JsonAdaptedAttendance> validThenInvalidAttendance = List.of(
+                new JsonAdaptedAttendance("2026-09-16", "present"),
+                new JsonAdaptedAttendance("2026-02-31", "present"));
+        JsonAdaptedPerson attendance = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL,
+                VALID_TAGS, validThenInvalidAttendance, List.of());
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_ATTENDANCE, attendance::toModelType);
+
+        // EP: a valid grade followed by an invalid one -> the invalid one is reported
+        List<JsonAdaptedGrade> validThenInvalidGrade = List.of(
+                new JsonAdaptedGrade("Quiz 1", BigDecimal.TEN),
+                new JsonAdaptedGrade("Exam,1", BigDecimal.TEN));
+        JsonAdaptedPerson grade = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS,
+                List.of(), validThenInvalidGrade);
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_GRADE, grade::toModelType);
+    }
+
+    @Test
+    public void toModelType_twoProblems_reportsTheOneThatIsCheckedFirst() {
+        JsonAdaptedAttendance invalidAttendance = new JsonAdaptedAttendance("2026-02-31", "present");
+        JsonAdaptedGrade invalidGrade = new JsonAdaptedGrade("Exam,1", BigDecimal.TEN);
+
+        // EP: an invalid attendance record and an invalid grade -> the attendance record
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_ATTENDANCE, new JsonAdaptedPerson(VALID_NAME,
+                VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, List.of(invalidAttendance),
+                List.of(invalidGrade))::toModelType);
+
+        // EP: an invalid grade and an invalid name -> the grade, as the records are read before the name
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_GRADE, new JsonAdaptedPerson(INVALID_NAME,
+                VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, List.of(), List.of(invalidGrade))::toModelType);
+
+        // EP: a duplicate date and an invalid grade -> the invalid grade, as each record is read first
+        assertThrows(IllegalValueException.class, MESSAGE_INVALID_GRADE, new JsonAdaptedPerson(VALID_NAME,
+                VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS,
+                List.of(new JsonAdaptedAttendance("2026-09-16", "present"),
+                        new JsonAdaptedAttendance("2026-09-16", "absent")),
+                List.of(invalidGrade))::toModelType);
+    }
+
+    private static JsonAdaptedPerson personWithAttendance(JsonAdaptedAttendance record) {
+        return new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, List.of(record),
+                List.of());
+    }
+
+    private static JsonAdaptedPerson personWithGrade(JsonAdaptedGrade grade) {
+        return new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, List.of(),
+                List.of(grade));
+    }
+
+    private static void assertDuplicateAttendanceDate(List<JsonAdaptedAttendance> records) {
         JsonAdaptedPerson person = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS,
-            recordsWithNull, List.of());
-        String expectedMessage = String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "attendanceRecords");
-        assertThrows(IllegalValueException.class, expectedMessage, person::toModelType);
+                records, List.of());
+        assertThrows(IllegalValueException.class, Person.MESSAGE_DUPLICATE_ATTENDANCE_DATE, person::toModelType);
     }
 
-    @Test
-    public void toModelType_nullGradeRecord_throwsIllegalValueException() {
-        List<JsonAdaptedGrade> recordsWithNull = new ArrayList<>();
-        recordsWithNull.add(null);
+    private static void assertDuplicateAssessment(List<JsonAdaptedGrade> records) {
         JsonAdaptedPerson person = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS,
-            List.of(), recordsWithNull);
-        String expectedMessage = String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "gradeRecords");
-        assertThrows(IllegalValueException.class, expectedMessage, person::toModelType);
-    }
-
-    @Test
-    public void toModelType_invalidAttendanceRecord_throwsIllegalValueException() {
-        JsonAdaptedAttendance invalidRecord =
-            new JsonAdaptedAttendance("31-02-2026", "present");
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(
-            VALID_NAME,
-            VALID_CLASS_NAME,
-            VALID_EMAIL,
-            VALID_TAGS,
-            List.of(invalidRecord),
-            List.of());
-
-        assertThrows(IllegalValueException.class, adaptedPerson::toModelType);
-    }
-
-    @Test
-    public void toModelType_personWithGrade_returnsPersonWithGrade() throws Exception {
-        Grade grade = new Grade("Assignment 1", new BigDecimal("97.5"));
-        Person personWithGrade = BENSON.withGrade(grade);
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(personWithGrade);
-
-        assertEquals(personWithGrade, adaptedPerson.toModelType());
-        assertEquals(List.of(grade), adaptedPerson.toModelType().getGradeRecords());
-    }
-
-    @Test
-    public void toModelType_missingGradeRecords_returnsPersonWithNoGrades() throws Exception {
-        JsonAdaptedPerson adaptedPerson = new JsonAdaptedPerson(
-            VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, VALID_TAGS, null, null);
-
-        assertTrue(adaptedPerson.toModelType().getGradeRecords().isEmpty());
+                List.of(), records);
+        assertThrows(IllegalValueException.class, Person.MESSAGE_DUPLICATE_ASSESSMENT, person::toModelType);
     }
 
 }
