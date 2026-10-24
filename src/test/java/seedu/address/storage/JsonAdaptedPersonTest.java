@@ -268,6 +268,17 @@ public class JsonAdaptedPersonTest {
     }
 
     @Test
+    public void toModelType_nullTag_throwsIllegalValueException() {
+        // EP: a null entry in the tags
+        List<JsonAdaptedTag> tagsWithNull = new ArrayList<>(VALID_TAGS);
+        tagsWithNull.add(null);
+        JsonAdaptedPerson person = new JsonAdaptedPerson(VALID_NAME, VALID_CLASS_NAME, VALID_EMAIL, tagsWithNull,
+                List.of(), List.of());
+        String expectedMessage = String.format(JsonAdaptedPerson.EMPTY_ENTRY_MESSAGE_FORMAT, "tags");
+        assertThrows(IllegalValueException.class, expectedMessage, person::toModelType);
+    }
+
+    @Test
     public void toModelType_nullRecord_throwsIllegalValueException() {
         // EP: a null entry in the attendance records
         List<JsonAdaptedAttendance> attendanceWithNull = new ArrayList<>();

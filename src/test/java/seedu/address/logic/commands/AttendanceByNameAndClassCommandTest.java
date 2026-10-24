@@ -191,7 +191,13 @@ public class AttendanceByNameAndClassCommandTest {
         // EP: a name that is only part of a name of a contact
         assertFailsWithContactNotFound(name.substring(0, name.length() - 1), className);
 
-        // EP: a name and a class that are not valid for a contact
+        // EP: a name that is not valid for a contact, with the class of a contact
+        assertFailsWithContactNotFound("Not, A Name", className);
+
+        // EP: a class that is not valid for a contact, with the name of a contact
+        assertFailsWithContactNotFound(name, "!!!");
+
+        // EP: a name and a class that are both not valid for a contact
         assertFailsWithContactNotFound("Not, A Name", "!!!");
     }
 
