@@ -74,29 +74,73 @@ public class ParserUtilTest {
     }
 
     @Test
-    public void parseDate_invalidInput_throwsParseException() {
-        assertThrows(ParseException.class, MESSAGE_INVALID_DATE, () -> ParserUtil.parseDate("31-02-2026"));
-        assertThrows(ParseException.class, MESSAGE_INVALID_DATE, () -> ParserUtil.parseDate("2026-09-16"));
-    }
+    public void parseDate_validDate_returnsDate() throws Exception {
+        // EP: a date with two-digit day and month and a four-digit year
+        assertEquals(LocalDate.of(2026, 9, 16), ParserUtil.parseDate("16-09-2026"));
 
-    @Test
-    public void parseDate_validInput_success() throws Exception {
-        LocalDate expectedDate = LocalDate.of(2026, 9, 16);
+        // EP: a date with spaces at the start and end -> spaces are ignored
+        assertEquals(LocalDate.of(2026, 9, 16), ParserUtil.parseDate("  16-09-2026  "));
 
-        assertEquals(expectedDate, ParserUtil.parseDate("16-09-2026"));
-        assertEquals(expectedDate, ParserUtil.parseDate("  16-09-2026  "));
-    }
+        // EP: the first and last day of a month and of a year (boundaries)
+        assertEquals(LocalDate.of(2026, 1, 1), ParserUtil.parseDate("01-01-2026"));
+        assertEquals(LocalDate.of(2026, 12, 31), ParserUtil.parseDate("31-12-2026"));
+        assertEquals(LocalDate.of(2026, 4, 30), ParserUtil.parseDate("30-04-2026"));
 
-    @Test
-    public void parseDate_yearZero_success() throws Exception {
+        // EP: 29 February in a leap year, including a century year that is a leap year
+        assertEquals(LocalDate.of(2024, 2, 29), ParserUtil.parseDate("29-02-2024"));
+        assertEquals(LocalDate.of(2000, 2, 29), ParserUtil.parseDate("29-02-2000"));
+
+        // EP: the smallest and the largest year with four digits (boundaries)
         assertEquals(LocalDate.of(0, 1, 1), ParserUtil.parseDate("01-01-0000"));
+        assertEquals(LocalDate.of(9999, 12, 31), ParserUtil.parseDate("31-12-9999"));
     }
 
     @Test
-    public void parseDate_signedOrLongYear_throwsParseException() {
-        for (String invalidDate : List.of("16-09-+2026", "16-09--0001", "16-09-12026", "16-09-+12026")) {
-            assertThrows(ParseException.class, MESSAGE_INVALID_DATE, () -> ParserUtil.parseDate(invalidDate));
-        }
+    public void parseDate_invalidDate_throwsParseException() {
+        // EP: text that is empty, only spaces, or not a date at all
+        assertParseDateFails("");
+        assertParseDateFails("   ");
+        assertParseDateFails("today");
+
+        // EP: a date in another layout
+        assertParseDateFails("2026-09-16");
+        assertParseDateFails("16/09/2026");
+        assertParseDateFails("16.09.2026");
+        assertParseDateFails("16-Sep-2026");
+        assertParseDateFails("16 09 2026");
+        assertParseDateFails("16092026");
+
+        // EP: a day or month with one digit
+        assertParseDateFails("16-9-2026");
+        assertParseDateFails("6-09-2026");
+
+        // EP: a year that does not have exactly four digits, or that has a sign
+        assertParseDateFails("16-09-26");
+        assertParseDateFails("16-09-202");
+        assertParseDateFails("16-09-12026");
+        assertParseDateFails("16-09-+2026");
+        assertParseDateFails("16-09-+12026");
+        assertParseDateFails("16-09--0001");
+
+        // EP: digits of another script
+        assertParseDateFails("١٦-٠٩-٢٠٢٦");
+
+        // EP: a day below the smallest day or above the largest day (boundaries)
+        assertParseDateFails("00-01-2026");
+        assertParseDateFails("32-01-2026");
+
+        // EP: a month below the smallest month or above the largest month (boundaries)
+        assertParseDateFails("16-00-2026");
+        assertParseDateFails("16-13-2026");
+
+        // EP: a day that the month does not have
+        assertParseDateFails("31-04-2026");
+        assertParseDateFails("31-02-2026");
+        assertParseDateFails("30-02-2026");
+
+        // EP: 29 February in a year that is not a leap year, including a century year that is not a leap year
+        assertParseDateFails("29-02-2026");
+        assertParseDateFails("29-02-1900");
     }
 
     @Test
@@ -105,21 +149,73 @@ public class ParserUtilTest {
     }
 
     @Test
-    public void parseScore_validInput_returnsScore() throws Exception {
+    public void parseScore_validScore_returnsScore() throws Exception {
+        // EP: the smallest and the largest score (boundaries)
         assertEquals(new BigDecimal("0"), ParserUtil.parseScore("0"));
         assertEquals(new BigDecimal("100"), ParserUtil.parseScore("100"));
+
+        // EP: a score just above the smallest and just below the largest score (boundaries)
+        assertEquals(new BigDecimal("0.01"), ParserUtil.parseScore("0.01"));
+        assertEquals(new BigDecimal("99.99"), ParserUtil.parseScore("99.99"));
+
+        // EP: a score between the smallest and the largest, without and with a decimal part
+        assertEquals(new BigDecimal("50"), ParserUtil.parseScore("50"));
+        assertEquals(new BigDecimal("97.5"), ParserUtil.parseScore("97.5"));
+
+        // EP: a score with zeros at the end -> the number of decimals is kept
         assertEquals(new BigDecimal("100.00"), ParserUtil.parseScore("100.00"));
-        assertEquals(new BigDecimal("97.5"), ParserUtil.parseScore("  97.5  "));
+        assertEquals(new BigDecimal("0.0"), ParserUtil.parseScore("0.0"));
+
+        // EP: a score with no digit before the dot, or with zeros before the first digit
         assertEquals(new BigDecimal(".5"), ParserUtil.parseScore(".5"));
         assertEquals(new BigDecimal("7"), ParserUtil.parseScore("007"));
+
+        // EP: a score with many decimals
+        assertEquals(new BigDecimal("0.000000000000000000000001"),
+                ParserUtil.parseScore("0.000000000000000000000001"));
+
+        // EP: a score with spaces at the start and end -> spaces are ignored
+        assertEquals(new BigDecimal("97.5"), ParserUtil.parseScore("  97.5  "));
     }
 
     @Test
-    public void parseScore_invalidInput_throwsParseException() {
-        for (String invalidScore : List.of("", "abc", "-1", "+5", "5.", "1e2", "5%", "1 2", "100.01", "101")) {
-            assertThrows(ParseException.class, Grade.MESSAGE_INVALID_SCORE, ()
-                    -> ParserUtil.parseScore(invalidScore));
-        }
+    public void parseScore_invalidScore_throwsParseException() {
+        // EP: text that is empty or only spaces
+        assertParseScoreFails("");
+        assertParseScoreFails("   ");
+
+        // EP: text that is not a number, or a number with other characters
+        assertParseScoreFails("abc");
+        assertParseScoreFails("5a");
+        assertParseScoreFails("5%");
+        assertParseScoreFails("1 2");
+        assertParseScoreFails("1,5");
+        assertParseScoreFails("1.2.3");
+        assertParseScoreFails(".");
+
+        // EP: a score with a sign, including a sign in front of zero
+        assertParseScoreFails("-1");
+        assertParseScoreFails("+5");
+        assertParseScoreFails("-0");
+
+        // EP: a score with an exponent
+        assertParseScoreFails("1e2");
+        assertParseScoreFails("1E2");
+
+        // EP: a score with a dot but no digit after it
+        assertParseScoreFails("5.");
+
+        // EP: a digit of another script
+        assertParseScoreFails("٣");
+
+        // EP: a score just above the largest score (boundaries)
+        assertParseScoreFails("100.01");
+        assertParseScoreFails("100.1");
+
+        // EP: a score far above the largest score, including one with many digits
+        assertParseScoreFails("101");
+        assertParseScoreFails("1000");
+        assertParseScoreFails("9".repeat(40));
     }
 
     @Test
@@ -128,24 +224,88 @@ public class ParserUtilTest {
     }
 
     @Test
-    public void parseAssessmentName_validInput_returnsTrimmedName() throws Exception {
+    public void parseAssessmentName_validName_returnsTrimmedName() throws Exception {
+        // EP: a name with letters, digits and spaces
+        assertEquals("Assignment 1", ParserUtil.parseAssessmentName("Assignment 1"));
+
+        // EP: a name with symbols from a standard keyboard, including a slash that is not a parameter
+        assertEquals("Quiz #1 (Part A)", ParserUtil.parseAssessmentName("Quiz #1 (Part A)"));
+        assertEquals("Lab 1/2", ParserUtil.parseAssessmentName("Lab 1/2"));
+        assertEquals("Quiz/scores", ParserUtil.parseAssessmentName("Quiz/scores")); // not a whole prefix
+
+        // EP: a name with accented letters
+        assertEquals("Examen Finé", ParserUtil.parseAssessmentName("Examen Finé"));
+
+        // EP: a name with spaces at the start and end -> spaces are removed
         assertEquals("Quiz #1", ParserUtil.parseAssessmentName("  Quiz #1  "));
-        assertEquals("a".repeat(Grade.MAX_ASSESSMENT_NAME_LENGTH),
-                ParserUtil.parseAssessmentName("a".repeat(Grade.MAX_ASSESSMENT_NAME_LENGTH)));
+
+        // EP: a name with the smallest length (boundary)
+        assertEquals("Q", ParserUtil.parseAssessmentName("Q"));
+
+        // EP: a name just below, and with, the largest length (boundaries)
+        String maxLengthName = "a".repeat(Grade.MAX_ASSESSMENT_NAME_LENGTH);
+        assertEquals(maxLengthName.substring(1), ParserUtil.parseAssessmentName(maxLengthName.substring(1)));
+        assertEquals(maxLengthName, ParserUtil.parseAssessmentName(maxLengthName));
     }
 
     @Test
-    public void parseAssessmentName_invalidInput_throwsParseException() {
-        for (String invalidName : List.of("", "Quiz,1", "a".repeat(Grade.MAX_ASSESSMENT_NAME_LENGTH + 1))) {
-            assertThrows(ParseException.class, Grade.MESSAGE_INVALID_ASSESSMENT_NAME, ()
-                    -> ParserUtil.parseAssessmentName(invalidName));
-        }
+    public void parseAssessmentName_invalidName_throwsParseException() {
+        // EP: an empty name or only spaces (boundary, shorter than the smallest length)
+        assertParseAssessmentNameFails("");
+        assertParseAssessmentNameFails("   ");
+
+        // EP: a name longer than the largest length (boundary)
+        assertParseAssessmentNameFails("a".repeat(Grade.MAX_ASSESSMENT_NAME_LENGTH + 1));
+
+        // EP: a name with a comma
+        assertParseAssessmentNameFails("Quiz,1");
+
+        // EP: a name with letters of another language
+        assertParseAssessmentNameFails("期中考试");
+
+        // EP: a name with a line break
+        assertParseAssessmentNameFails("Quiz\n1");
     }
 
     @Test
-    public void parseAssessmentName_embeddedPrefix_throwsParseException() {
+    public void parseAssessmentName_prefixStuckToText_throwsParseException() {
+        // EP: a prefix at the end of the name
+        assertParseAssessmentNameHasPrefix("Quiz/score", "/score");
+
+        // EP: a prefix followed by a space
+        assertParseAssessmentNameHasPrefix("Quiz/score extra", "/score");
+
+        // EP: a prefix written in another case -> the prefix is shown as typed
+        assertParseAssessmentNameHasPrefix("Quiz/SCORE", "/SCORE");
+
+        // EP: each of the other prefixes of the application
+        assertParseAssessmentNameHasPrefix("Quiz/name", "/name");
+        assertParseAssessmentNameHasPrefix("Quiz/class", "/class");
+        assertParseAssessmentNameHasPrefix("Quiz/assessment", "/assessment");
+    }
+
+    @Test
+    public void parseAssessmentName_prefixStuckToTextAndInvalidName_reportsPrefix() {
+        // EP: a name with both problems -> the prefix is reported first
+        assertParseAssessmentNameHasPrefix("Quiz,/score", "/score");
+    }
+
+    private static void assertParseDateFails(String date) {
+        assertThrows(ParseException.class, MESSAGE_INVALID_DATE, () -> ParserUtil.parseDate(date));
+    }
+
+    private static void assertParseScoreFails(String score) {
+        assertThrows(ParseException.class, Grade.MESSAGE_INVALID_SCORE, () -> ParserUtil.parseScore(score));
+    }
+
+    private static void assertParseAssessmentNameFails(String assessmentName) {
+        assertThrows(ParseException.class, Grade.MESSAGE_INVALID_ASSESSMENT_NAME, ()
+                -> ParserUtil.parseAssessmentName(assessmentName));
+    }
+
+    private static void assertParseAssessmentNameHasPrefix(String assessmentName, String expectedPrefix) {
         assertThrows(ParseException.class, String.format(ParserUtil.MESSAGE_PREFIX_WITHOUT_SPACE,
-                "assessment name", "/score"), () -> ParserUtil.parseAssessmentName("Quiz/score"));
+                "assessment name", expectedPrefix), () -> ParserUtil.parseAssessmentName(assessmentName));
     }
 
     @Test
