@@ -1,5 +1,7 @@
 package seedu.address.model;
 
+import static seedu.address.commons.util.CollectionUtil.requireAllNonNull;
+
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -79,6 +81,7 @@ public interface Model {
      * @return the matching person, if one exists
      */
     default Optional<Person> findPerson(String name, String className) {
+        requireAllNonNull(name, className);
         return getAddressBook().getPersonList().stream()
                 .filter(person -> person.hasNameAndClass(name, className))
                 .findFirst();
